@@ -1,4 +1,10 @@
 import { getSupabaseClient } from "./supabaseClient";
+import type { AppUser, DirectMessage } from "./types";
+
+type ProfileShape = { id: string; full_name: string; role: AppUser["role"] };
+
+type MaybeProfile = ProfileShape | ProfileShape[] | null | undefined;
+
 import { supabase } from "./supabaseClient";
 import type { AppUser, DirectMessage } from "./types";
 
@@ -8,6 +14,20 @@ interface MessageRow {
   recipient_id: string;
   body: string;
   created_at: string;
+  sender_profile?: MaybeProfile;
+  recipient_profile?: MaybeProfile;
+}
+
+function normalizeProfile(profile: MaybeProfile): ProfileShape | undefined {
+  if (!profile) return undefined;
+  if (Array.isArray(profile)) return profile[0];
+  return profile;
+}
+
+function mapMessage(row: MessageRow): DirectMessage {
+  const sender = normalizeProfile(row.sender_profile);
+  const recipient = normalizeProfile(row.recipient_profile);
+
   sender_profile?: { id: string; full_name: string; role: AppUser["role"] } | null;
   recipient_profile?: { id: string; full_name: string; role: AppUser["role"] } | null;
 }
@@ -19,6 +39,18 @@ function mapMessage(row: MessageRow): DirectMessage {
     recipientId: row.recipient_id,
     body: row.body,
     createdAt: row.created_at,
+    sender: sender
+      ? {
+          id: sender.id,
+          fullName: sender.full_name,
+          role: sender.role,
+        }
+      : undefined,
+    recipient: recipient
+      ? {
+          id: recipient.id,
+          fullName: recipient.full_name,
+          role: recipient.role,
     sender: row.sender_profile
       ? {
           id: row.sender_profile.id,
@@ -38,6 +70,7 @@ function mapMessage(row: MessageRow): DirectMessage {
 
 export async function fetchConversation(currentUserId: string, otherUserId: string): Promise<DirectMessage[]> {
   const supabase = getSupabaseClient();
+
   const { data, error } = await supabase
     .from("messages")
     .select(
@@ -57,6 +90,9 @@ export async function fetchConversation(currentUserId: string, otherUserId: stri
     .order("created_at", { ascending: true });
 
   if (error) throw error;
+
+  const rows = (data ?? []) as unknown as MessageRow[];
+  return rows.map(mapMessage);
   if (error) {
     throw error;
   }
@@ -80,6 +116,7 @@ export async function sendDirectMessage(senderId: string, recipientId: string, b
 
   const { data, error } = await supabase
     .from("messages")
+    .insert({ sender_id: senderId, recipient_id: recipientId, body: cleanBody })
     .insert({
       sender_id: senderId,
       recipient_id: recipientId,
@@ -99,6 +136,9 @@ export async function sendDirectMessage(senderId: string, recipientId: string, b
     .single();
 
   if (error) throw error;
+  if (!data) throw new Error("Message was inserted but no row was returned.");
+
+  return mapMessage(data as unknown as MessageRow);
   if (error) {
     throw error;
   }
