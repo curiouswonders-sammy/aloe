@@ -1,3 +1,4 @@
+import { getSupabaseClient } from "./supabaseClient";
 import { supabase } from "./supabaseClient";
 import type { AppUser, DirectMessage } from "./types";
 
@@ -36,6 +37,7 @@ function mapMessage(row: MessageRow): DirectMessage {
 }
 
 export async function fetchConversation(currentUserId: string, otherUserId: string): Promise<DirectMessage[]> {
+  const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("messages")
     .select(
@@ -54,6 +56,7 @@ export async function fetchConversation(currentUserId: string, otherUserId: stri
     )
     .order("created_at", { ascending: true });
 
+  if (error) throw error;
   if (error) {
     throw error;
   }
@@ -62,6 +65,13 @@ export async function fetchConversation(currentUserId: string, otherUserId: stri
 }
 
 export async function sendDirectMessage(senderId: string, recipientId: string, body: string): Promise<DirectMessage> {
+  const supabase = getSupabaseClient();
+  const cleanBody = body.trim();
+  if (!cleanBody) throw new Error("Message cannot be empty.");
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({ sender_id: senderId, recipient_id: recipientId, body: cleanBody })
   const cleanBody = body.trim();
 
   if (!cleanBody) {
@@ -88,6 +98,7 @@ export async function sendDirectMessage(senderId: string, recipientId: string, b
     )
     .single();
 
+  if (error) throw error;
   if (error) {
     throw error;
   }
@@ -100,6 +111,8 @@ export function subscribeToMessages(
   otherUserId: string,
   onNewMessage: (message: DirectMessage) => void,
 ) {
+  const supabase = getSupabaseClient();
+
   const channel = supabase
     .channel(`conversation:${currentUserId}:${otherUserId}`)
     .on(
@@ -118,6 +131,12 @@ export function subscribeToMessages(
           body: string;
           created_at: string;
         };
+
+        const inConversation =
+          (row.sender_id === currentUserId && row.recipient_id === otherUserId) ||
+          (row.sender_id === otherUserId && row.recipient_id === currentUserId);
+
+        if (!inConversation) return;
 
         onNewMessage({
           id: row.id,
