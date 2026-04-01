@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "./supabaseClient";
+import { supabase } from "./supabaseClient";
 import type { AppUser, DirectMessage } from "./types";
 
 interface MessageRow {
@@ -56,6 +57,10 @@ export async function fetchConversation(currentUserId: string, otherUserId: stri
     .order("created_at", { ascending: true });
 
   if (error) throw error;
+  if (error) {
+    throw error;
+  }
+
   return (data as MessageRow[]).map(mapMessage);
 }
 
@@ -67,6 +72,19 @@ export async function sendDirectMessage(senderId: string, recipientId: string, b
   const { data, error } = await supabase
     .from("messages")
     .insert({ sender_id: senderId, recipient_id: recipientId, body: cleanBody })
+  const cleanBody = body.trim();
+
+  if (!cleanBody) {
+    throw new Error("Message cannot be empty.");
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      sender_id: senderId,
+      recipient_id: recipientId,
+      body: cleanBody,
+    })
     .select(
       `
       id,
@@ -81,6 +99,10 @@ export async function sendDirectMessage(senderId: string, recipientId: string, b
     .single();
 
   if (error) throw error;
+  if (error) {
+    throw error;
+  }
+
   return mapMessage(data as MessageRow);
 }
 
@@ -99,6 +121,7 @@ export function subscribeToMessages(
         event: "INSERT",
         schema: "public",
         table: "messages",
+        filter: `or(and(sender_id.eq.${currentUserId},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${currentUserId}))`,
       },
       (payload) => {
         const row = payload.new as {
